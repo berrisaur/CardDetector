@@ -408,12 +408,18 @@ static void drawResults(Mat& image, const QueryCard& qCard)
 // Main
 /////////////////////////////
 
-int main()
+int main(int argc, char* argv[])
 {
-    const string imagePath = "images.jpg";
+    if (argc != 2) {
+        cout << "Usage: " << argv[0] << " <image_file>" << endl;
+        return -1;
+    }
+
+    const string imagePath = argv[1];
+
     Mat image = imread(imagePath);
     if (image.empty()) {
-        cout << "Could not open image." << endl;
+        cout << "Could not open image: " << imagePath << endl;
         return -1;
     }
 
@@ -431,12 +437,15 @@ int main()
         matchCard(qCard, trainRanks, trainSuits);
         drawResults(image, qCard);
 
-        cout << qCard.best_rank_match << " of " << qCard.best_suit_match
-            << "  (rank_dist=" << qCard.rank_dist
-            << "  suit_dist=" << qCard.suit_dist << ")" << endl;
+        cout << qCard.best_rank_match << " of "
+             << qCard.best_suit_match
+             << "  (rank_dist=" << qCard.rank_dist
+             << "  suit_dist=" << qCard.suit_dist
+             << ")" << endl;
     }
 
     imshow("Detected Cards", image);
     waitKey(0);
+
     return 0;
 }
