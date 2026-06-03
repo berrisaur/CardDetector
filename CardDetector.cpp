@@ -1,5 +1,3 @@
-// CardDetector.cpp (FIXED VERSION)
-
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
@@ -25,8 +23,8 @@ const int RANK_HEIGHT = 125;
 const int SUIT_WIDTH = 70;
 const int SUIT_HEIGHT = 100;
 
-const int RANK_DIFF_MAX = 2000;
-const int SUIT_DIFF_MAX = 700;
+const int RANK_DIFF_MAX = 3000;
+const int SUIT_DIFF_MAX = 900;
 
 const int CARD_MAX_AREA = 1000000;
 const int CARD_MIN_AREA = 1000;
@@ -67,17 +65,17 @@ struct QueryCard {
 vector<Point2f> orderPoints(const vector<Point2f>& pts) {
     vector<Point2f> rect(4);
 
-    float sumMin = 1e9, sumMax = -1e9;
-    float diffMin = 1e9, diffMax = -1e9;
+    float sumMin = 1e9f, sumMax = -1e9f;
+    float diffMin = 1e9f, diffMax = -1e9f;
 
-    for (auto& p : pts) {
+    for (const auto& p : pts) {
         float s = p.x + p.y;
         float d = p.y - p.x;
 
-        if (s < sumMin) { sumMin = s; rect[0] = p; } // TL
-        if (s > sumMax) { sumMax = s; rect[2] = p; } // BR
-        if (d < diffMin) { diffMin = d; rect[1] = p; } // TR
-        if (d > diffMax) { diffMax = d; rect[3] = p; } // BL
+        if (s < sumMin) { sumMin = s; rect[0] = p; } 
+        if (s > sumMax) { sumMax = s; rect[2] = p; } 
+        if (d < diffMin) { diffMin = d; rect[1] = p; }
+        if (d > diffMax) { diffMax = d; rect[3] = p; } 
     }
 
     return rect;
@@ -95,7 +93,7 @@ vector<TrainImage> loadRanks(const string& path) {
 
     vector<TrainImage> ranks;
 
-    for (auto& name : names) {
+    for (const auto& name : names) {
         TrainImage t;
         t.name = name;
         t.img = imread(path + "/" + name + ".jpg", IMREAD_GRAYSCALE);
@@ -114,7 +112,7 @@ vector<TrainImage> loadSuits(const string& path) {
 
     vector<TrainImage> suits;
 
-    for (auto& name : names) {
+    for (const auto& name : names) {
         TrainImage t;
         t.name = name;
         t.img = imread(path + "/" + name + ".jpg", IMREAD_GRAYSCALE);
@@ -133,7 +131,6 @@ vector<TrainImage> loadSuits(const string& path) {
 /////////////////////////////
 
 Mat preprocessImage(const Mat& image) {
-
     Mat gray, blurImg, thresh;
 
     cvtColor(image, gray, COLOR_BGR2GRAY);
@@ -148,11 +145,10 @@ Mat preprocessImage(const Mat& image) {
 }
 
 /////////////////////////////
-// Find Cards (FIXED FOR MULTI-CARD)
+// Find Cards
 /////////////////////////////
 
 vector<vector<Point>> findCards(const Mat& thresh) {
-
     vector<vector<Point>> contours;
     vector<Vec4i> hierarchy;
 
@@ -161,17 +157,17 @@ vector<vector<Point>> findCards(const Mat& thresh) {
 
     vector<vector<Point>> cards;
 
-    for (size_t i = 0; i < contours.size(); i++) {
+    for (const auto& contour : contours) {
 
-        double area = contourArea(contours[i]);
+        double area = contourArea(contour);
 
         if (area < CARD_MIN_AREA || area > CARD_MAX_AREA)
             continue;
 
         vector<Point> approx;
-        approxPolyDP(contours[i],
+        approxPolyDP(contour,
             approx,
-            arcLength(contours[i], true) * 0.02,
+            arcLength(contour, true) * 0.02,
             true);
 
         if (approx.size() == 4 && isContourConvex(approx)) {
@@ -188,8 +184,8 @@ vector<vector<Point>> findCards(const Mat& thresh) {
 
 Mat flattener(const Mat& image,
     const vector<Point2f>& pts,
-    int w,
-    int h)
+    int /*w*/,
+    int /*h*/)
 {
     vector<Point2f> rect = orderPoints(pts);
 
@@ -211,7 +207,7 @@ Mat flattener(const Mat& image,
 }
 
 /////////////////////////////
-// Preprocess Card (FIXED)
+// Preprocess Card
 /////////////////////////////
 
 QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
@@ -222,36 +218,34 @@ QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
     Rect box = boundingRect(contour);
 
     vector<Point2f> pts;
-    Point center(0, 0);
 
-    for (auto& p : contour) {
-        center += p;
-        pts.push_back(Point2f(p.x, p.y));
+    Point2f center(0.f, 0.f);
+
+    for (const auto& p : contour) {
+        center.x += static_cast<float>(p.x);
+        center.y += static_cast<float>(p.y);
+        pts.emplace_back(static_cast<float>(p.x), static_cast<float>(p.y));
     }
 
-    center.x /= contour.size();
-    center.y /= contour.size();
-    qCard.center = center;
+    float n = static_cast<float>(contour.size());
+    center.x /= n;
+    center.y /= n;
+
+    qCard.center = Point(center);
 
     qCard.warp = flattener(image, pts, box.width, box.height);
 
-    // --- Threshold the warped card first ---
     Mat warpThresh;
     threshold(qCard.warp, warpThresh, 0, 255, THRESH_BINARY_INV | THRESH_OTSU);
 
-    int w = warpThresh.cols;  // 200
-    int h = warpThresh.rows;  // 300
-
-    // Corner region: top-left quarter
     Mat corner = warpThresh(Rect(0, 0, CORNER_WIDTH, CORNER_HEIGHT)).clone();
 
-    // Split rank (top 60%) and suit (bottom 40%) of corner
-    int split = (int)(corner.rows * 0.6);
+    int split = static_cast<int>(corner.rows * 0.6f);
 
     Mat rank = corner(Rect(0, 0, corner.cols, split)).clone();
     Mat suit = corner(Rect(0, split, corner.cols, corner.rows - split)).clone();
 
-    // --- Rank extraction ---
+    // Rank extraction
     {
         Mat rankCopy = rank.clone();
         vector<vector<Point>> rank_cnts;
@@ -259,13 +253,13 @@ QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
 
         if (!rank_cnts.empty()) {
             sort(rank_cnts.begin(), rank_cnts.end(),
-                [](auto& a, auto& b) {
+                [](const auto& a, const auto& b) {
                     return contourArea(a) > contourArea(b);
                 });
 
             Rect r = boundingRect(rank_cnts[0]);
-            // Safety clamp
             r &= Rect(0, 0, rank.cols, rank.rows);
+
             if (r.area() > 0) {
                 Mat roi = rank(r);
                 resize(roi, qCard.rank_img, Size(RANK_WIDTH, RANK_HEIGHT));
@@ -273,7 +267,7 @@ QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
         }
     }
 
-    // --- Suit extraction ---
+    // Suit extraction
     {
         Mat suitCopy = suit.clone();
         vector<vector<Point>> suit_cnts;
@@ -281,12 +275,13 @@ QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
 
         if (!suit_cnts.empty()) {
             sort(suit_cnts.begin(), suit_cnts.end(),
-                [](auto& a, auto& b) {
+                [](const auto& a, const auto& b) {
                     return contourArea(a) > contourArea(b);
                 });
 
             Rect r = boundingRect(suit_cnts[0]);
             r &= Rect(0, 0, suit.cols, suit.rows);
+
             if (r.area() > 0) {
                 Mat roi = suit(r);
                 resize(roi, qCard.suit_img, Size(SUIT_WIDTH, SUIT_HEIGHT));
@@ -294,12 +289,11 @@ QueryCard preprocessCard(const vector<Point>& contour, const Mat& image)
         }
     }
 
-    cout << "rank empty: " << qCard.rank_img.empty() << endl;
-    cout << "suit empty: " << qCard.suit_img.empty() << endl;
     return qCard;
 }
+
 /////////////////////////////
-// Match Card (FIXED - threshold training images too)
+// Match Card
 /////////////////////////////
 
 void matchCard(QueryCard& qCard,
@@ -309,10 +303,9 @@ void matchCard(QueryCard& qCard,
     int best_rank_diff = 100000;
     int best_suit_diff = 100000;
 
-    for (auto& r : ranks) {
+    for (const auto& r : ranks) {
         if (qCard.rank_img.empty() || r.img.empty()) continue;
 
-        // Threshold training image to match query preprocessing
         Mat trainThresh;
         threshold(r.img, trainThresh, 0, 255, THRESH_BINARY | THRESH_OTSU);
 
@@ -321,7 +314,8 @@ void matchCard(QueryCard& qCard,
 
         Mat diff;
         absdiff(qCard.rank_img, trainResized, diff);
-        int d = (int)(sum(diff)[0] / 255);
+
+        int d = static_cast<int>(sum(diff)[0] / 255.0);
 
         if (d < best_rank_diff) {
             best_rank_diff = d;
@@ -329,7 +323,7 @@ void matchCard(QueryCard& qCard,
         }
     }
 
-    for (auto& s : suits) {
+    for (const auto& s : suits) {
         if (qCard.suit_img.empty() || s.img.empty()) continue;
 
         Mat trainThresh;
@@ -340,7 +334,8 @@ void matchCard(QueryCard& qCard,
 
         Mat diff;
         absdiff(qCard.suit_img, trainResized, diff);
-        int d = (int)(sum(diff)[0] / 255);
+
+        int d = static_cast<int>(sum(diff)[0] / 255.0);
 
         if (d < best_suit_diff) {
             best_suit_diff = d;
@@ -351,17 +346,15 @@ void matchCard(QueryCard& qCard,
     if (best_rank_diff > RANK_DIFF_MAX) qCard.best_rank_match = "Unknown";
     if (best_suit_diff > SUIT_DIFF_MAX) qCard.best_suit_match = "Unknown";
 
-    cout << "Rank diff: " << best_rank_diff << endl;
-    cout << "Suit diff: " << best_suit_diff << endl;
     qCard.rank_diff = best_rank_diff;
     qCard.suit_diff = best_suit_diff;
 }
+
 /////////////////////////////
 // Draw Results
 /////////////////////////////
 
-void drawResults(Mat& image, QueryCard& qCard) {
-
+void drawResults(Mat& image, const QueryCard& qCard) {
     circle(image, qCard.center, 5, Scalar(255, 0, 0), FILLED);
 
     string text = qCard.best_rank_match + " of " + qCard.best_suit_match;
@@ -380,8 +373,7 @@ void drawResults(Mat& image, QueryCard& qCard) {
 /////////////////////////////
 
 int main() {
-
-    string imagePath = "testimage.webp";
+    string imagePath = "testimage2.webp";
     Mat image = imread(imagePath);
 
     if (image.empty()) {
@@ -397,15 +389,10 @@ int main() {
     vector<vector<Point>> cards = findCards(thresh);
 
     cout << "Cards found: " << cards.size() << endl;
-	cout << "suits loaded: " << trainSuits.size() << endl;
-	cout << "ranks loaded: " << trainRanks.size() << endl;
 
-    for (auto& c : cards) {
-
+    for (const auto& c : cards) {
         QueryCard qCard = preprocessCard(c, image);
-
         matchCard(qCard, trainRanks, trainSuits);
-
         drawResults(image, qCard);
 
         cout << qCard.best_rank_match
